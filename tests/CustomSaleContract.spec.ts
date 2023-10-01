@@ -5,14 +5,11 @@ import { NftCollection } from '../wrappers/NftCollection';
 import { NftItem } from '../wrappers/NftItem';
 import '@ton-community/test-utils';
 import { compile } from '@ton-community/blueprint';
-import { randomAddress } from '@ton-community/test-utils';
-import { randomInt } from 'crypto';
-import { escape } from 'querystring';
 import { DucksCollectionOwnerProxy } from '../wrappers/DucksCollectionOwnerProxy';
 
 describe('CustomSaleContract', () => {
 
-    let blockchain: Blockchain;
+    let blockchain:                     Blockchain;
     let deployer:                       SandboxContract<TreasuryContract>;
     let egg_master_code:                Cell;
     let buyer:                          SandboxContract<TreasuryContract>;
@@ -36,7 +33,7 @@ describe('CustomSaleContract', () => {
 
     });
 
-    it('should send msg to collection of ducks for duck deploy and transfer egg to user', async () => {
+    it('deploy all contracts and make a purchase', async () => {
 
         blockchain =                    await Blockchain.create();
         deployer =                      await blockchain.treasury('deployer');
@@ -48,15 +45,12 @@ describe('CustomSaleContract', () => {
         royalty_address =               await blockchain.treasury('royalty_address');
         nft_owner_address =             await blockchain.treasury('nft_owner_address');
         
-        
-        /*
         blockchain.verbosity = {
             print: true,
             blockchainLogs: true,
-            vmLogs: 'vm_logs_full',
+            vmLogs: 'none',
             debugLogs: false,
         }
-        */
 
         EggsCollection = blockchain.openContract(NftCollection.createFromConfig({
             ownerAddress: deployer.address,
@@ -75,12 +69,14 @@ describe('CustomSaleContract', () => {
 
         const FirstEggNftAddress = await EggsCollection.getNftAddressByIndex(0n);
 
+        /*
         await blockchain.setVerbosityForAddress(FirstEggNftAddress, {
             print: true,
             vmLogs: 'vm_logs_full',
             blockchainLogs: true,
             debugLogs: true
         });
+        */
 
         EggsMaster = blockchain.openContract(DucksCollectionOwnerProxy.createFromConfig({
             nft_item_code: await compile('NftItem'),
@@ -176,12 +172,6 @@ describe('CustomSaleContract', () => {
             from: deployer.address,
             to: EggsCollection.address,
             deploy: true,
-            success: true
-        });
-
-        expect(EggsNftDeploy.transactions).toHaveTransaction({
-            from: deployer.address,
-            to: EggsCollection.address,
             success: true
         });
 

@@ -174,19 +174,6 @@ _ load_fees(cell fees_cell) inline {
 
 	send_raw_message(nft_msg.end_cell(), 1); ;; transfer NFT to eggs_master_addr
 
-	{-
-
-	var deploy_nft_msg = begin_cell()
-			.store_uint(0x18, 6)
-			.store_slice(ducks_collection_addr)
-			.store_coins(50000000)
-			.store_uint(1, 1 + 4 + 4 + 64 + 32 + 1 + 1)
-			.store_ref(message_to_collection_for_ducks_nft_deploy);
-
-	send_raw_message(deploy_nft_msg.end_cell(), 1);
-
-	-}
-
 	;; Set sale as complete
 	save_data(
 			1,
