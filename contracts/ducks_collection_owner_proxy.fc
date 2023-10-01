@@ -1,0 +1,139 @@
+#include "imports/stdlib.fc";
+#include "imports/op.fc";
+#include "imports/params.fc";
+#include "imports/messages.fc";
+
+;; Storage
+;;
+;; nft_item_code cell
+;; eggs_collection_addr slice
+;; ducks_collection_addr slice
+
+{-
+
+Прокси смарт-контракт, обладает следующей функциональностью:
+
+- Пересылка всех сообщений поступающих в контракт владельцу;
+- При пересылке сначала должен идти адрес отправителя, а потом тело сообщения
+- Значение Toncoin, прикрепленное к сообщению, должно быть равно значению входящего сообщения за вычетом сборов, связанных с обработкой (плата за вычисления и пересылку сообщения)
+- Адрес владельца хранится в хранилище смарт-контракта
+- При отправке сообщения в контракт от владельца пересылка не должна осуществляться
+
+-}
+
+
+;; функция, которая вытаскивает адрес отправителя
+
+slice parse_sender_address (cell in_msg_full) inline {
+
+    var cs = in_msg_full.begin_parse(); ;; преобразуем ячейку в слайс
+
+    var flags = cs~load_uint(4); ;; "вычитаем" флаги
+
+    slice sender_address = cs~load_msg_addr(); ;; загружаем адрес из слайса
+
+    return sender_address;
+
+}
+
+;; функция, которая вытаскивает адрес получателя из ячейки с4 смарта
+
+(cell, slice) load_data() inline {
+
+    ;; get_data() берет ячейку с4, а begin_parse() преобразует ее в слайс
+    var ds = get_data().begin_parse();
+
+    ;; загружаем из слайса префикс MsgAddress
+    return (
+        ds~load_ref(), ;; nft_item_code
+        ds~load_msg_addr() ;; eggs_collection_addr
+    );
+}
+
+() save_data(cell nft_item_code, slice eggs_collection_addr) impure inline {
+    set_data(
+        begin_cell()
+            .store_ref(nft_item_code)
+            .store_slice(eggs_collection_addr)
+        .end_cell()
+    );
+}
+
+cell calculate_nft_item_state_init(int item_index, cell nft_item_code, slice eggs_collection_addr) {
+  cell data = begin_cell().store_uint(item_index, 64).store_slice(eggs_collection_addr).end_cell();
+  return begin_cell().store_uint(0, 2).store_dict(nft_item_code).store_dict(data).store_uint(0, 1).end_cell();
+}
+
+slice calculate_nft_item_address(int wc, cell state_init) {
+  return begin_cell().store_uint(4, 3)
+                     .store_int(wc, 8)
+                     .store_uint(cell_hash(state_init), 256)
+                     .end_cell()
+                     .begin_parse();
+}
+
+int check_nft(int item_index, cell nft_item_code, slice eggs_collection_addr, sender_address) inline {
+
+    cell egg_nft_state_init = calculate_nft_item_state_init(item_index, nft_item_code, eggs_collection_addr);
+
+    if equal_slices(sender_address, calculate_nft_item_address(workchain(), egg_nft_state_init)) {
+        return -1;
+    } else {
+        return 0;
+    }
+}
+
+;; Теперь делаем функцию, которая сравнит адрес получателя и отправителя
+;; FunC поддерживает определение функции на ассемблере (Fift)
+;; Мы определяем функцию как низкоуровневый примтив Ton Virtual Machine
+;; Список примитивов (то, что после "asm") берем с 77 страницы TVM
+
+
+;; для приема сообщений используем внешний метод
+;;
+;; При инициализации транзакции, в стеке 5 элементов:
+;;
+;; Баланс смарт-контракта(в наноТонах)
+;; Баланс входящего сообщения (в наноТонах)
+;; Ячейка с входящим сообщеним
+;; Тело входящего сообщения, тип слайс
+;; Селектор функции (для recv_internal это 0)
+
+int equal_slices (slice a, slice b) asm "SDEQ";
+
+() recv_internal (int balance, int msg_value, cell in_msg_full, slice in_msg_body) {
+
+    if (in_msg_body.slice_empty?()) { ;; ignore empty messages
+        return ();
+    }
+
+    slice cs = in_msg_full.begin_parse();
+
+    int flags = cs~load_uint(4);
+
+    if (flags & 1) { ;; ignore all bounced messages
+        return ();
+    }
+
+    slice sender_address = cs~load_msg_addr();
+
+    int op = in_msg_body~load_uint(32);
+    int query_id = in_msg_body~load_uint(64);
+    slice data_cs = in_msg_body~load_ref().begin_parse();
+    int nft_index = data_cs~load_uint(64);
+    slice new_owner = data_cs~load_msg_addr();
+    slice ducks_collection_addr = data_cs~load_msg_addr();
+    cell message_for_nft_deploy = data_cs~load_ref();
+
+    (cell nft_item_code, slice eggs_collection_addr) = load_data();
+
+    int nft_check_result = check_nft(nft_index, nft_item_code, eggs_collection_addr, sender_address);
+
+    if (nft_check_result) {
+
+        messages::send_simple(300000000, ducks_collection_addr, message_for_nft_deploy, 64);
+
+    }
+
+    save_data(nft_item_code, eggs_collection_addr);
+}
